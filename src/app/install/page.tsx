@@ -22,13 +22,20 @@ async function checkDb(): Promise<{ ok: boolean; detail: string }> {
 export default async function InstallPage() {
   if (await isInstalled()) redirect("/login");
   const [db, b] = [await checkDb(), await getBrand()];
+  const secretOk = (process.env.AUTH_SECRET ?? "").length >= 16;
   return (
     <AuthShell title={`Set up ${b.name}`} sub="Three checks, one admin account. This page locks itself when it is done.">
       <div className={`notice ${db.ok ? "good" : "bad"}`} role="status">
         <strong>Database.</strong> {db.detail}
         {!db.ok && <div className="small">Set the DB_* variables in your environment (see .env.example) and restart the app.</div>}
       </div>
-      {db.ok && (
+      {!secretOk && (
+        <div className="notice bad" role="alert">
+          <strong>Secret key.</strong> AUTH_SECRET is missing or shorter than 16 characters.
+          <div className="small">Add AUTH_SECRET (a long random string, 32+ characters) to your environment variables and restart the app. Without it, logins and encrypted settings cannot work.</div>
+        </div>
+      )}
+      {db.ok && secretOk && (
         <ActionForm action={installAction} submit="Install" pendingLabel="Running migrations...">
           <Field label="Admin email" name="email" type="email" autoComplete="email" required />
           <Field label="Admin username" name="username" prefix={`${b.host}/`} autoComplete="username" required maxLength={40} />

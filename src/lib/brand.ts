@@ -19,7 +19,14 @@ const HEX = /^#[0-9a-fA-F]{6}$/;
 /** Priority: admin DB setting > env var > default. No product name lives anywhere else in the codebase. */
 export async function getBrand(): Promise<Brand> {
   const s = await getSettings();
-  const url = (s.brand_url || process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, "");
+  let url = (s.brand_url || process.env.APP_URL || "http://localhost:3000").trim().replace(/\/+$/, "");
+  // Forgive a missing scheme (APP_URL=example.com) instead of crashing every page.
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  try {
+    new URL(url);
+  } catch {
+    url = "http://localhost:3000";
+  }
   const primary = s.brand_primary || process.env.APP_PRIMARY_COLOR || "#0E7C66";
   let host = "localhost";
   try {
