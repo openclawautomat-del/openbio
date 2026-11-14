@@ -1,0 +1,102 @@
+/* Public bio pages. Themed entirely through --bg --fg --muted --btn-* set inline by PublicPageView. */
+.bio {
+  min-height: 100dvh; background: var(--bg); color: var(--fg);
+  font-family: var(--font-text), system-ui, sans-serif; line-height: 1.5;
+  --line: color-mix(in srgb, var(--fg) 22%, transparent);
+  --shadow-off: 4px;
+}
+.bio-serif { font-family: var(--f-serif), Georgia, serif; }
+.bio-mono { font-family: var(--font-mono), ui-monospace, monospace; }
+.bio-grid {
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: -1px -1px;
+}
+.bio-wrap { max-width: 560px; margin: 0 auto; padding: 56px 20px 40px; display: flex; flex-direction: column; gap: 32px; }
+
+.bio-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; }
+.bio-avatar { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; border: 2px solid var(--fg); margin-bottom: 8px; background: var(--bg); }
+.bio-avatar-empty { display: grid; place-items: center; font: 600 36px var(--font-display), sans-serif; }
+.bio-square .bio-avatar { border-radius: 4px; }
+.bio-head h1 { font-family: var(--font-display), sans-serif; font-size: 28px; line-height: 1.15; letter-spacing: -0.02em; margin: 0; font-weight: 700; }
+.bio-serif .bio-head h1 { font-family: var(--f-serif), Georgia, serif; font-weight: 600; }
+.bio-mono .bio-head h1 { font-family: var(--font-mono), monospace; font-size: 24px; letter-spacing: -0.03em; }
+.bio-handle { margin: 0; font-family: var(--font-mono), monospace; font-size: 13px; color: var(--muted); }
+.bio-handle b { font-weight: 600; color: var(--fg); }
+.bio-text { margin: 8px 0 0; max-width: 44ch; color: var(--fg); white-space: pre-line; overflow-wrap: anywhere; }
+
+.bio-list { display: flex; flex-direction: column; gap: 12px; }
+.bio-header { font-size: 13px; font-weight: 600; margin: 16px 0 0; color: var(--muted); letter-spacing: 0.01em; }
+.bio-group { font-size: 14px; font-weight: 700; margin: 20px 0 0; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.bio-empty { text-align: center; color: var(--muted); }
+
+/* Buttons: shape and style are independent axes. */
+.bio-btn, .bio-product, .bio-submit {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 52px; padding: 12px 18px; text-decoration: none; cursor: pointer; list-style: none;
+  background: var(--btn-bg); color: var(--btn-fg); border: 2px solid var(--btn-border);
+  font: inherit; font-weight: 600; text-align: left;
+  transition: transform .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+.bio-btn > span:first-child { flex: 1; overflow-wrap: anywhere; }
+.bio-btn svg { flex: none; opacity: .7; }
+.bio-square .bio-btn, .bio-square .bio-product, .bio-square .bio-submit { border-radius: 0; }
+.bio-round .bio-btn, .bio-round .bio-product, .bio-round .bio-submit { border-radius: 14px; }
+.bio-pill .bio-btn, .bio-pill .bio-submit { border-radius: 999px; padding-inline: 24px; }
+.bio-pill .bio-product { border-radius: 24px; }
+.bio-outline .bio-btn, .bio-outline .bio-product { background: transparent; }
+.bio-offset .bio-btn, .bio-offset .bio-product { box-shadow: var(--shadow-off) var(--shadow-off) 0 var(--btn-border); }
+.bio-btn:hover, .bio-product:hover { transform: translate(-1px, -1px); }
+.bio-offset .bio-btn:hover, .bio-offset .bio-product:hover { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--btn-border); }
+.bio-outline .bio-btn:hover { background: color-mix(in srgb, var(--btn-fg) 10%, transparent); }
+.bio-solid .bio-btn:hover { background: color-mix(in srgb, var(--btn-bg) 88%, var(--fg)); }
+.bio a:focus-visible, .bio summary:focus-visible, .bio button:focus-visible, .bio input:focus-visible, .bio textarea:focus-visible {
+  outline: 3px solid var(--fg); outline-offset: 3px;
+}
+.bio summary::-webkit-details-marker { display: none; }
+
+.bio-product { align-items: stretch; flex-wrap: wrap; }
+.bio-product-main { flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; }
+.bio-product-main small { font-weight: 400; opacity: .8; }
+.bio-price { font-family: var(--font-mono), monospace; align-self: center; }
+.bio-product-cta { align-self: center; font-size: 13px; border-bottom: 2px solid currentColor; }
+
+.bio-embed iframe { width: 100%; border: 2px solid var(--btn-border); background: var(--bg); display: block; }
+.bio-round .bio-embed iframe { border-radius: 14px; }
+.bio-pill .bio-embed iframe { border-radius: 20px; }
+.bio-embed-title { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
+
+.bio-contact[open] > summary { margin-bottom: 12px; }
+.bio-contact form { padding: 4px 2px 0; }
+.bio .field > label { color: var(--fg); }
+.bio .field input, .bio .field textarea {
+  background: transparent; color: var(--fg); border: 2px solid var(--btn-border); border-radius: 0; width: 100%; padding: 10px 12px; font: inherit;
+}
+.bio-round .field input, .bio-round .field textarea { border-radius: 10px; }
+.bio-pill .field input { border-radius: 999px; padding-inline: 18px; }
+.bio-pill .field textarea { border-radius: 18px; }
+.bio .err { color: var(--fg); font-weight: 600; text-decoration: underline wavy; text-underline-offset: 3px; }
+.bio-submit { justify-content: center; width: 100%; }
+.bio-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+.bio-socials { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; }
+.bio-socials a { color: var(--fg); font-size: 14px; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1.5px; }
+.bio-socials a:hover { text-decoration-thickness: 3px; }
+
+.bio-foot { text-align: center; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.bio-foot p { margin: 0; }
+.bio-foot a { color: inherit; text-underline-offset: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bio-btn, .bio-product { transition: none; }
+  .bio-btn:hover, .bio-product:hover, .bio-offset .bio-btn:hover, .bio-offset .bio-product:hover { transform: none; }
+}
+
+/* Status / interstitial screens (expired link, password prompt, 404). Use the app palette, not a bio theme. */
+.gone { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: var(--bg); }
+.gone-box { width: 100%; max-width: 420px; }
+.gone-box h1 { font-family: var(--font-display); font-size: 26px; line-height: 1.2; letter-spacing: -0.02em; margin: 8px 0 8px; }
+.gone-box p { color: var(--ink); margin: 0 0 16px; }
+.gone-box .slug { color: var(--muted); }

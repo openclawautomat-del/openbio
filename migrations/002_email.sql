@@ -1,0 +1,37 @@
+CREATE TABLE IF NOT EXISTS mailboxes (
+  type VARCHAR(32) NOT NULL PRIMARY KEY,
+  host VARCHAR(191) NOT NULL,
+  port INT NOT NULL DEFAULT 465,
+  secure TINYINT(1) NOT NULL DEFAULT 1,
+  username VARCHAR(191) NOT NULL,
+  password_enc TEXT NOT NULL,
+  from_name VARCHAR(100) NULL,
+  from_email VARCHAR(191) NULL,
+  daily_limit INT NOT NULL DEFAULT 100,
+  enabled TINYINT(1) NOT NULL DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS email_usage (
+  mailbox_type VARCHAR(32) NOT NULL,
+  day DATE NOT NULL,
+  sent INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (mailbox_type, day)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS email_queue (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  type VARCHAR(32) NOT NULL,
+  priority TINYINT NOT NULL DEFAULT 5,
+  to_email VARCHAR(255) NOT NULL,
+  subject VARCHAR(255) NOT NULL,
+  html MEDIUMTEXT NOT NULL,
+  text_body MEDIUMTEXT NOT NULL,
+  status ENUM('queued','sending','sent','failed') NOT NULL DEFAULT 'queued',
+  attempts INT NOT NULL DEFAULT 0,
+  next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  mailbox_used VARCHAR(32) NULL,
+  last_error VARCHAR(500) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  sent_at DATETIME NULL,
+  INDEX (status, next_attempt_at, priority)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
