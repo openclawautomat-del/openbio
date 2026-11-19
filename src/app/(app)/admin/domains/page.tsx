@@ -18,7 +18,20 @@ const STATUS: Record<DomainRow["status"], { label: string; cls: string }> = {
 const when = (d: Date | null) => (d ? new Date(d).toISOString().replace("T", " ").slice(0, 16) + " UTC" : "never");
 
 export default async function Domains() {
-  const rows = await domainService().list();
+  let rows: DomainRow[] = [];
+  try {
+    rows = await domainService().list();
+  } catch (e) {
+    // Most likely migration 004 has not been run yet. Say so instead of a blank error page (admin-only page).
+    return (
+      <div className="page-head"><div>
+        <h1>Domains</h1>
+        <div className="notice bad" role="alert">
+          Could not read the domains table: {(e as Error).message}. Run <span className="mono">npm run migrate</span> on the server (migration 004 creates it), then reload.
+        </div>
+      </div></div>
+    );
+  }
   const current = rows.find((d) => d.is_default);
   const appHost = appOrigin().host;
   return (

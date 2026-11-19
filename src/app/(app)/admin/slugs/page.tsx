@@ -16,7 +16,7 @@ const LISTS: { kind: L["kind"]; title: string; help: string; placeholder: string
 ];
 
 export default async function Slugs() {
-  const [lists, queue, flagged] = await Promise.all([
+  const loaded = await Promise.all([
     query<L>("SELECT id, kind, value FROM slug_lists ORDER BY kind, value"),
     query<Q>(
       `SELECT l.id, 'link' AS kind, l.slug, l.review_reason AS reason, l.user_id AS owner_id, u.username AS owner, l.target_url AS target, l.created_at
@@ -30,7 +30,16 @@ export default async function Slugs() {
       `SELECT l.id, l.slug, l.safety_note AS note, l.user_id AS owner_id, u.username AS owner, l.target_url
          FROM links l JOIN users u ON u.id = l.user_id WHERE l.safety_status = 'flagged' ORDER BY l.checked_at DESC LIMIT 50`,
     ),
-  ]);
+  ]).catch((e: Error) => e);
+  if (loaded instanceof Error) {
+    return (
+      <div className="page-head"><div>
+        <h1>Names and safety</h1>
+        <div className="notice bad" role="alert">Could not read the lists: {loaded.message}. Run <span className="mono">npm run migrate</span> on the server (migration 004), then reload.</div>
+      </div></div>
+    );
+  }
+  const [lists, queue, flagged] = loaded;
   return (
     <>
       <div className="page-head">
