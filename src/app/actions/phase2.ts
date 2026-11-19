@@ -1,10 +1,8 @@
 "use server";
 
-import dns from "node:dns/promises";
 import { revalidatePath } from "next/cache";
 import { exec, query, queryOne } from "@/lib/db";
 import { audit, requireUser } from "@/lib/auth";
-import { randomToken } from "@/lib/crypto";
 import { getBrand } from "@/lib/brand";
 import { phase2Enabled } from "@/lib/features";
 import { rateLimit } from "@/lib/ratelimit";
@@ -19,47 +17,6 @@ const done = (message: string): FormState => ({ ok: true, message });
 async function guard() {
   if (!phase2Enabled()) throw new Error("Phase 2 features are turned off on this server.");
   return requireUser();
-}
-
-/* ---------- Custom domains ---------- */
-
-const txtName = (hostname: string) => `_verify.${hostname}`;
-
-export async function addDomainAction(_: FormState, fd: FormData): Promise<FormState> {
-  const u = await guard();
-  const host = s(fd, "hostname").toLowerCase().replace(/^https?:\/\//, "").split("/")[0].replace(/:\d+$/, "");
-  if (!/^(?=.{4,190}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(host)) return fail({ hostname: "Enter a domain like links.example.com." });
-  const b = await getBrand();
-  if (host === b.host) return fail({ hostname: "That is this site's own address." });
-  const count = await queryOne<{ n: number }>("SELECT COUNT(*) AS n FROM domains WHERE user_id = ?", [u.id]);
-  if (Number(count?.n ?? 0) >= 5) return fail({ hostname: "You can connect up to 5 domains." });
-  if (await queryOne("SELECT id FROM domains WHERE hostname = ?", [host])) return fail({ hostname: "That domain is already connected to an account." });
-  await exec("INSERT INTO domains (user_id, hostname, verify_token) VALUES (?, ?, ?)", [u.id, host, randomToken(16)]);
-  revalidatePath("/dashboard/domains");
-  return done(`Added ${host}. Add the DNS records below, then press Check.`);
-}
-
-export async function verifyDomainAction(id: number): Promise<void> {
-  const u = await guard();
-  if (!(await rateLimit(`domain:verify:${u.id}`, 30, 3600))) return;
-  const d = await queryOne<{ hostname: string; verify_token: string }>("SELECT hostname, verify_token FROM domains WHERE id = ? AND user_id = ?", [id, u.id]);
-  if (!d) return;
-  try {
-    const recs = (await dns.resolveTxt(txtName(d.hostname))).map((r) => r.join(""));
-    if (recs.includes(`domain-verify=${d.verify_token}`)) {
-      await exec("UPDATE domains SET verified_at = UTC_TIMESTAMP() WHERE id = ?", [id]);
-      await audit(u.id, "domain.verify", d.hostname);
-    }
-  } catch {
-    /* record not visible yet; the user can check again */
-  }
-  revalidatePath("/dashboard/domains");
-}
-
-export async function deleteDomainAction(id: number): Promise<void> {
-  const u = await guard();
-  await exec("DELETE FROM domains WHERE id = ? AND user_id = ?", [id, u.id]);
-  revalidatePath("/dashboard/domains");
 }
 
 /* ---------- Link groups ---------- */

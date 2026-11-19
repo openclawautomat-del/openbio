@@ -2,7 +2,12 @@ import { z } from "zod";
 import crypto from "node:crypto";
 import { exec, query, queryOne } from "../db";
 import { hashPassword } from "../auth";
-import { checkTargetUrl, isBlocked, slugSchema, fieldErrors } from "../validation";
+import { fieldErrors } from "../validation";
+import { assessDestination } from "./safety";
+import { validateNewSlug, slugInUse, slugRateOk, SLUG_RATE_MESSAGE } from "../slug-service";
+import { invalidateSlug } from "../slug-cache";
+import { fromHeaders } from "../request";
+import { getBrand } from "../brand";
 
 export type Result<T> = { ok: true; data: T } | { ok: false; errors: Record<string, string> };
 
@@ -19,6 +24,9 @@ export interface LinkRow {
   starts_at: Date | null;
   enabled: number;
   moderated: number;
+  review_status?: "none" | "pending" | "approved" | "rejected";
+  review_reason?: string | null;
+  safety_status?: "ok" | "flagged";
   created_at: Date;
 }
 
@@ -47,11 +55,7 @@ export const linkInput = z.object({
 });
 export type LinkInput = z.infer<typeof linkInput>;
 
-export async function slugTaken(slug: string, exceptLinkId?: number): Promise<boolean> {
-  const l = await queryOne<{ id: number }>("SELECT id FROM links WHERE slug = ?" + (exceptLinkId ? " AND id <> ?" : ""), exceptLinkId ? [slug, exceptLinkId] : [slug]);
-  if (l) return true;
-  return !!(await queryOne("SELECT id FROM users WHERE username = ?", [slug]));
-}
+export const slugTaken = slugInUse;
 
 function randomSlug(): string {
   const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
@@ -59,34 +63,48 @@ function randomSlug(): string {
   return Array.from(b, (x) => alphabet[x % alphabet.length]).join("");
 }
 
+async function requestIp(): Promise<string> {
+  try {
+    const { headers } = await import("next/headers");
+    return fromHeaders(await headers()).ip;
+  } catch {
+    return "0.0.0.0"; // outside a request (scripts, tests)
+  }
+}
+const isAdminUser = async (id: number) => (await queryOne<{ role: string }>("SELECT role FROM users WHERE id = ?", [id]))?.role === "super_admin";
+
 export async function createLink(userId: number, ownHost: string, raw: unknown): Promise<Result<LinkRow>> {
   const p = linkInput.safeParse(raw);
   if (!p.success) return { ok: false, errors: fieldErrors(p.error) };
   const v = p.data;
-  const u = checkTargetUrl(v.target_url, ownHost);
+  const u = await assessDestination(v.target_url, ownHost);
   if (!u.ok) return { ok: false, errors: { target_url: u.error } };
-  const blocked = await isBlocked(u.url);
-  if (blocked) return { ok: false, errors: { target_url: blocked } };
-
+  const appName = (await getBrand()).name;
   let slug = v.slug;
+  let review: string | null = null;
   if (slug) {
-    const s = slugSchema.safeParse(slug);
-    if (!s.success) return { ok: false, errors: { slug: s.error.issues[0].message } };
-    slug = s.data;
-    if (await slugTaken(slug)) return { ok: false, errors: { slug: "That short name is already taken." } };
+    // Only chosen names count against the rate limit; random ones cannot be used to squat a look-alike.
+    if (!(await slugRateOk(userId, await requestIp()))) return { ok: false, errors: { slug: SLUG_RATE_MESSAGE } };
+    const s = await validateNewSlug(slug, { appName });
+    if (!s.ok) return { ok: false, errors: { slug: s.error } };
+    slug = s.slug; review = s.review;
   } else {
     for (let i = 0; i < 8 && !slug; i++) {
       const c = randomSlug();
-      if (!(await slugTaken(c))) slug = c;
+      const s = await validateNewSlug(c, { appName });
+      if (s.ok && !s.review) slug = s.slug;
     }
     if (!slug) return { ok: false, errors: { slug: "Could not generate a free short name. Try again." } };
   }
   if (v.starts_at && v.expires_at && v.expires_at <= v.starts_at) return { ok: false, errors: { expires_at: "Expiry must be after the start date." } };
   const pw = v.password ? await hashPassword(v.password) : null;
+  // Suspicious names wait in the admin review queue and stay inactive until approved. Admins skip the queue.
+  const queued = review !== null && !(await isAdminUser(userId));
   const res = await exec(
-    "INSERT INTO links (user_id, team_id, group_id, slug, title, target_url, password_hash, expires_at, starts_at, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [userId, v.team_id ?? null, v.group_id ?? null, slug, v.title, u.url, pw, v.expires_at, v.starts_at, v.enabled === false ? 0 : 1],
+    "INSERT INTO links (user_id, team_id, group_id, slug, title, target_url, password_hash, expires_at, starts_at, enabled, review_status, review_reason, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())",
+    [userId, v.team_id ?? null, v.group_id ?? null, slug, v.title, u.url, pw, v.expires_at, v.starts_at, v.enabled === false ? 0 : 1, queued ? "pending" : "none", queued ? review : null],
   );
+  invalidateSlug(slug);
   const row = await queryOne<LinkRow>("SELECT * FROM links WHERE id = ?", [res.insertId]);
   return { ok: true, data: row! };
 }
@@ -100,17 +118,19 @@ export async function updateLink(userId: number, id: number, ownHost: string, ra
   const sets: string[] = [];
   const vals: unknown[] = [];
   if (v.target_url !== undefined) {
-    const u = checkTargetUrl(v.target_url, ownHost);
+    const u = await assessDestination(v.target_url, ownHost);
     if (!u.ok) return { ok: false, errors: { target_url: u.error } };
-    const blocked = await isBlocked(u.url);
-    if (blocked) return { ok: false, errors: { target_url: blocked } };
-    sets.push("target_url = ?"); vals.push(u.url);
+    sets.push("target_url = ?"); vals.push(u.url); sets.push("checked_at = UTC_TIMESTAMP()");
   }
   if (v.slug !== undefined) {
-    const s = slugSchema.safeParse(v.slug);
-    if (!s.success) return { ok: false, errors: { slug: s.error.issues[0].message } };
-    if (s.data !== cur.slug && (await slugTaken(s.data, id))) return { ok: false, errors: { slug: "That short name is already taken." } };
-    sets.push("slug = ?"); vals.push(s.data);
+    const wanted = String(v.slug).normalize("NFKC").trim().toLowerCase();
+    if (wanted !== cur.slug) {
+      if (!(await slugRateOk(userId, await requestIp()))) return { ok: false, errors: { slug: SLUG_RATE_MESSAGE } };
+      const s = await validateNewSlug(wanted, { appName: (await getBrand()).name, exceptLinkId: id });
+      if (!s.ok) return { ok: false, errors: { slug: s.error } };
+      sets.push("slug = ?"); vals.push(s.slug);
+      if (s.review && !isAdmin) { sets.push("review_status = 'pending'", "review_reason = ?"); vals.push(s.review); }
+    }
   }
   if (v.title !== undefined) { sets.push("title = ?"); vals.push(v.title); }
   if (raw && typeof raw === "object" && "password" in raw) {
@@ -123,6 +143,7 @@ export async function updateLink(userId: number, id: number, ownHost: string, ra
   if (v.enabled !== undefined) { sets.push("enabled = ?"); vals.push(v.enabled ? 1 : 0); }
   if (raw && typeof raw === "object" && "group_id" in raw) { sets.push("group_id = ?"); vals.push(v.group_id ?? null); }
   if (sets.length) await exec(`UPDATE links SET ${sets.join(", ")} WHERE id = ?`, [...vals, id]);
+  invalidateSlug(cur.slug, v.slug);
   return { ok: true, data: (await queryOne<LinkRow>("SELECT * FROM links WHERE id = ?", [id]))! };
 }
 
@@ -146,6 +167,7 @@ export async function deleteLink(userId: number, id: number, isAdmin = false): P
   const l = await getLinkForUser(userId, id, isAdmin);
   if (!l) return false;
   await exec("DELETE FROM links WHERE id = ?", [id]);
+  invalidateSlug(l.slug);
   await exec("DELETE FROM clicks WHERE entity_type = 'link' AND entity_id = ?", [id]);
   return true;
 }
@@ -172,9 +194,10 @@ export async function listLinks(o: ListOpts): Promise<{ rows: LinkRow[]; total: 
   return { rows, total };
 }
 
-export type LinkState = "active" | "disabled" | "expired" | "scheduled" | "moderated";
-export function linkState(l: Pick<LinkRow, "enabled" | "moderated" | "expires_at" | "starts_at">): LinkState {
-  if (l.moderated) return "moderated";
+export type LinkState = "active" | "disabled" | "expired" | "scheduled" | "moderated" | "review";
+export function linkState(l: Pick<LinkRow, "enabled" | "moderated" | "expires_at" | "starts_at"> & { review_status?: string }): LinkState {
+  if (l.moderated || l.review_status === "rejected") return "moderated";
+  if (l.review_status === "pending") return "review";
   if (!l.enabled) return "disabled";
   const now = Date.now();
   if (l.expires_at && new Date(l.expires_at).getTime() <= now) return "expired";

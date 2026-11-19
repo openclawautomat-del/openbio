@@ -159,3 +159,41 @@ export function ActionButton({ action, className = "btn btn-sm", children, label
     </button>
   );
 }
+
+/**
+ * Confirmation dialog built on <dialog>: centered panel on desktop, bottom sheet under 640px (see .sheet in globals.css).
+ * Focus moves into the dialog and Escape closes it, both provided by showModal().
+ */
+export function ConfirmDialog({ trigger, title, children, confirmLabel, action, triggerClass = "btn btn-sm", danger }: {
+  trigger: React.ReactNode; title: string; children: React.ReactNode; confirmLabel: string;
+  action: () => Promise<FormState | void>; triggerClass?: string; danger?: boolean;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState("");
+  return (
+    <>
+      <button type="button" className={triggerClass} onClick={() => { setErr(""); ref.current?.showModal(); }}>{trigger}</button>
+      <dialog ref={ref} className="sheet" aria-labelledby="dlg-title" onClick={(e) => { if (e.target === ref.current) ref.current?.close(); }}>
+        <div className="sheet-body">
+          <h2 id="dlg-title">{title}</h2>
+          <div className="stack-sm">{children}</div>
+          {err && <div className="notice bad" role="alert">{err}</div>}
+          <div className="sheet-actions">
+            <button type="button" className="btn" onClick={() => ref.current?.close()}>Cancel</button>
+            <button
+              type="button"
+              className={danger ? "btn btn-danger" : "btn btn-primary"}
+              disabled={pending}
+              onClick={() => start(async () => {
+                const r = await action();
+                if (r && r.errors) { setErr(Object.values(r.errors)[0] ?? "Something went wrong."); return; }
+                ref.current?.close();
+              })}
+            >{pending ? "Working..." : confirmLabel}</button>
+          </div>
+        </div>
+      </dialog>
+    </>
+  );
+}

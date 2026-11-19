@@ -25,7 +25,8 @@ MIT licensed.
 **Accounts and teams**
 - Register, log in, reset password, optional email verification, optional Google sign-in
 - Team workspaces with editor and viewer roles
-- Custom domains with DNS verification
+- Admin-managed domains with one default, an HTTPS check before activation and a safe switch of the default
+- Reserved names, look-alike and phishing protection, an admin review queue and a public report form
 - CSV import and export of links
 
 **REST API**
@@ -41,7 +42,7 @@ MIT licensed.
 - Database queue with retry and backoff, daily limits with a warning at 80%
 - Logs, usage meters and a test button
 
-Phase 2 features (domains, teams, contact blocks, goals, CSV) can be switched off with `FEATURE_PHASE2=false`. Phase 1 works without them.
+Phase 2 features (teams, contact blocks, goals, CSV) can be switched off with `FEATURE_PHASE2=false`. Phase 1 works without them.
 
 ## Screenshots
 
@@ -99,7 +100,10 @@ Everything is in `.env`. After install, an admin can override the branding value
 | `APP_PRIMARY_COLOR` | Brand colour as `#RRGGBB` |
 | `FEATURE_PHASE2` | `false` or `0` turns off the Phase 2 features |
 | `UPLOAD_DIR` | Where uploads are stored. Must survive deploys. |
-| `TRUST_PROXY` | Read the client IP from proxy headers (keep `true` behind Hostinger or Cloudflare) |
+| `TRUST_PROXY` | `true` makes the app trust `X-Forwarded-Host` and `X-Forwarded-Proto` (and the client IP headers). Keep `true` behind Hostinger or Cloudflare. Any other value ignores those headers. |
+| `GOOGLE_SAFE_BROWSING_KEY` | Optional. Adds a Google Safe Browsing check on destinations. Everything works without it. |
+| `DB_POOL` | MySQL connections per process. Default 5, which suits shared hosting. |
+| `CLICK_BATCH`, `CLICK_FLUSH_MS` | Analytics batching: flush after this many clicks (default 50) or this many ms (default 5000). |
 
 Google sign-in, SMTP and S3 storage work only when you configure them in **Admin > Settings**. No credentials ship with the code.
 
@@ -117,9 +121,45 @@ Email verification is off by default. Turn it on in **Admin > Settings > General
 
 Server notes: the app runs one Node process and a 60-second timer that sends queued email. It keeps no other background workers.
 
-### Custom domains
+### Domains
 
-Users add a domain in **Dashboard > Domains**, create the shown DNS records (a CNAME or A record to your host, and a TXT record for verification), and click **Check DNS**. Your server must accept the domain: add each custom domain as an alias in hosting, or put Cloudflare or a wildcard setup in front. The custom-domain router reads `APP_URL` from the environment to tell your own host from others, so set it there and not only in admin settings.
+Only the Super Admin manages domains, in **Admin > Domains**. Users never add or choose one.
+
+To add a domain:
+
+1. In Hostinger hPanel, create the subdomain (for example `go.example.com`) and point it at this Node.js app.
+2. Install SSL for that subdomain in hPanel. The app never issues or renews certificates.
+3. In **Admin > Domains**, add `go.example.com`. It starts as **pending**.
+4. Press **Check & activate**. The app requests `https://go.example.com/api/health` and needs a valid certificate and a reply from this app. If it fails, the exact reason is shown (DNS not resolving, expired or self-signed certificate, wrong subdomain target, redirect). **Activate anyway** is an explicit override that is recorded in the audit log.
+5. To serve public content from it, press **Make default**.
+
+The host of `APP_URL` is added as an active domain and as the default automatically, on fresh installs and on upgrades, so nobody can be locked out. Set `TRUST_PROXY=true` behind Hostinger so the real host is read from `X-Forwarded-Host`.
+
+What each kind of domain serves:
+
+| Route | Default domain | Other active domains and the `APP_URL` host | Unknown hosts |
+| --- | --- | --- | --- |
+| Short links `/<slug>`, bio pages, `/out/*`, vCard | Served | 404 | 404 |
+| Dashboard, admin, API, installer, login | Served | Served | 404 |
+| `/api/health` | Served | Served | Served |
+
+There are no aliases and no redirects. Links and bio pages store only the slug or username, so no data changes when the default changes: every URL (copy link, QR targets, canonical and Open Graph tags, sitemap, emails, API responses) is built from the current default domain when it is rendered.
+
+**Changing the default** (Super Admin only, active domains only) is one database transaction with an audit log entry. After it, **old URLs and printed QR codes on the previous domain stop working** and return 404. Disabling or deleting a domain never deletes links. The default domain cannot be disabled or deleted. Google sign-in uses the default domain for its redirect URI, so add the new address there when you switch.
+
+### Short names and bio usernames
+
+Short link slugs and bio usernames share one namespace and the same rules:
+
+- NFKC-normalised, lowercase ASCII only: `a-z`, `0-9`, hyphen, underscore. 3 to 32 characters, no leading, trailing or doubled hyphens.
+- Reserved: every top-level route of the app, static paths (`_next`, `uploads`, `robots.txt`, `.well-known`, ...), and an editable list (`www`, `mail`, `support`, `verify`, ...) plus your app name. A test fails when a new top-level route is added without being reserved (`src/lib/slug-rules.ts`).
+- Protected brands: a brand on its own, or a brand with a sensitive word (`paypal-login`), is refused, including look-alikes (`paypa1`, `rnicrosoft`, `vvhatsapp`) and repeated letters (`gooogle`). A name that only contains a brand (`paypal-fan`) is accepted but waits in **Admin > Names and safety** and stays inactive for non-admin users until approved.
+- All three lists are editable there. Refused and taken names show the same message: "This name is not available."
+- Creating or renaming names is rate limited per user and per IP.
+
+Destinations must be public `http` or `https` URLs. Credentials in the URL, raw IP addresses, localhost and private ranges, links back to this site's own domains, other URL shorteners and the blocked-domains list are rejected. With `GOOGLE_SAFE_BROWSING_KEY` set, destinations are also checked at creation and every six hours afterwards; flagged links are switched off and appear in the admin queue.
+
+Reports: `/report` (and `POST /api/report`) are public and rate limited. Reports appear in **Admin > Reports** with one-click actions: disable the link, suspend the user, block the destination domain. A link with an open report shows a warning page before anyone is sent on.
 
 ## Email setup
 
@@ -161,8 +201,10 @@ Restore with `mysql -u USER -p DB_NAME < openbio-backup.sql` and unpack the uplo
 | Emails never arrive | Check **Admin > Email**: queue and failed counts, then use the test button. Check SPF and DKIM. |
 | Uploaded images vanish after redeploy | `UPLOAD_DIR` is inside the build folder. Move it outside. |
 | Wrong IPs or countries in analytics | `TRUST_PROXY` is off, or your proxy does not send a country header. Country is blank without one. |
-| Short links show the wrong domain | `APP_URL` is wrong or still `localhost`. |
-| Custom domain stays pending | The TXT record at `_verify.your-domain` must equal `domain-verify=TOKEN` exactly. DNS can take a while. |
+| Short links show the wrong domain | The default domain in **Admin > Domains** is not the one you expect. If no domain exists yet, `APP_URL` is wrong or still `localhost`. |
+| A domain stays pending | Read the reason under it in **Admin > Domains**. Most often the subdomain does not point at this app yet, or SSL is not installed for it. |
+| Everything returns 404 on a new domain | Public content is served only on the default domain. Dashboard and admin work on every active domain. |
+| Wrong host is detected behind the proxy | Set `TRUST_PROXY=true`. |
 | Build runs out of memory | Build locally and upload the result, or raise the Node memory limit with `NODE_OPTIONS=--max-old-space-size=2048`. |
 
 ## Security

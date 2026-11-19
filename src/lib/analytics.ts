@@ -1,4 +1,5 @@
 import { exec, query, queryOne } from "./db";
+import { ClickBuffer } from "./click-buffer.ts";
 import { visitorHash } from "./crypto";
 import type { ReqInfo } from "./request";
 
@@ -36,20 +37,61 @@ export interface ClickInput {
   utm?: { source?: string; medium?: string; campaign?: string };
 }
 
-/** Records one hit. Bots are dropped; IPs are never stored, only a daily-rotating salted hash. */
+interface ClickRow {
+  type: string; id: number; userId: number; vh: string; country: string | null; device: string; browser: string; os: string;
+  referrer: string | null; utm: [string | null, string | null, string | null];
+}
+
+/** Writes a batch in two queries: one lookup for already-seen visitors, one multi-row insert. */
+async function writeClicks(batch: ClickRow[]): Promise<void> {
+  const keys = [...new Set(batch.map((c) => `${c.type}|${c.id}|${c.vh}`))];
+  const seenDb = new Set<string>();
+  for (let i = 0; i < keys.length; i += 200) {
+    const part = keys.slice(i, i + 200).map((k) => k.split("|"));
+    const rows = await query<{ entity_type: string; entity_id: number; visitor_hash: string }>(
+      `SELECT DISTINCT entity_type, entity_id, visitor_hash FROM clicks WHERE (entity_type, entity_id, visitor_hash) IN (${part.map(() => "(?,?,?)").join(",")})`,
+      part.flat(),
+    );
+    for (const r of rows) seenDb.add(`${r.entity_type}|${r.entity_id}|${r.visitor_hash}`);
+  }
+  const seen = new Set(seenDb);
+  const values: unknown[] = [];
+  for (const c of batch) {
+    const k = `${c.type}|${c.id}|${c.vh}`;
+    values.push(c.type, c.id, c.userId, c.vh, seen.has(k) ? 0 : 1, c.country, c.device, c.browser, c.os, c.referrer, ...c.utm);
+    seen.add(k);
+  }
+  await exec(
+    `INSERT INTO clicks (entity_type, entity_id, user_id, visitor_hash, is_unique, country, device, browser, os, referrer, utm_source, utm_medium, utm_campaign)
+     VALUES ${batch.map(() => "(?,?,?,?,?,?,?,?,?,?,?,?,?)").join(",")}`,
+    values,
+  );
+}
+
+const g = globalThis as unknown as { __clicks?: ClickBuffer<ClickRow> };
+function buffer(): ClickBuffer<ClickRow> {
+  if (!g.__clicks) {
+    g.__clicks = new ClickBuffer<ClickRow>(writeClicks, { maxEvents: Number(process.env.CLICK_BATCH || 50), intervalMs: Number(process.env.CLICK_FLUSH_MS || 5000) });
+    g.__clicks.start();
+  }
+  return g.__clicks;
+}
+/** Called on shutdown so queued clicks are not lost. */
+export const flushClicks = async (): Promise<void> => { await g.__clicks?.stop(); };
+
+/**
+ * Queues one hit and returns immediately: a redirect never waits for analytics.
+ * Bots are dropped; IPs are never stored, only a daily-rotating salted hash.
+ */
 export async function recordClick(c: ClickInput): Promise<void> {
   if (isBot(c.info.ua)) return;
   try {
-    const vh = visitorHash(c.info.ip, c.info.ua);
-    const seen = await queryOne("SELECT 1 FROM clicks WHERE entity_type = ? AND entity_id = ? AND visitor_hash = ? LIMIT 1", [c.type, c.id, vh]);
     const { device, browser, os } = parseUA(c.info.ua);
     const cut = (v?: string) => (v ? v.slice(0, 100) : null);
-    await exec(
-      `INSERT INTO clicks (entity_type, entity_id, user_id, visitor_hash, is_unique, country, device, browser, os, referrer, utm_source, utm_medium, utm_campaign)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [c.type, c.id, c.userId, vh, seen ? 0 : 1, c.info.country, device, browser, os, refHost(c.info.referer, c.ownHost),
-        cut(c.utm?.source), cut(c.utm?.medium), cut(c.utm?.campaign)],
-    );
+    buffer().push({
+      type: c.type, id: c.id, userId: c.userId, vh: visitorHash(c.info.ip, c.info.ua), country: c.info.country, device, browser, os,
+      referrer: refHost(c.info.referer, c.ownHost), utm: [cut(c.utm?.source), cut(c.utm?.medium), cut(c.utm?.campaign)],
+    });
   } catch {
     // Analytics must never break a redirect.
   }

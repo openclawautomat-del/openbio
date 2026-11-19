@@ -6,6 +6,7 @@ import { exec, queryOne } from "@/lib/db";
 import { audit, destroyAllSessions, requireAdmin } from "@/lib/auth";
 import { encrypt } from "@/lib/crypto";
 import { setSettings } from "@/lib/settings";
+import { clearSlugCache } from "@/lib/slug-cache";
 import { hexColor, emailSchema } from "@/lib/validation";
 import { LANGUAGES } from "@/lib/i18n";
 import { EMAIL_TYPES, sendTestEmail } from "@/lib/email/mailer";
@@ -29,6 +30,7 @@ export async function setUserRoleAction(id: number, role: "super_admin" | "user"
   if (id === me.id && role !== "super_admin" && (await otherAdmins(id)) === 0) return;
   await exec("UPDATE users SET role = ? WHERE id = ?", [role, id]);
   await audit(me.id, "user.role", String(id), { role });
+  clearSlugCache();
   revalidatePath("/admin/users");
 }
 
@@ -38,6 +40,7 @@ export async function setUserStatusAction(id: number, status: "active" | "suspen
   await exec("UPDATE users SET status = ? WHERE id = ?", [status, id]);
   if (status === "suspended") await destroyAllSessions(id);
   await audit(me.id, `user.${status === "active" ? "reinstate" : "suspend"}`, String(id));
+  clearSlugCache();
   revalidatePath("/admin/users");
 }
 
@@ -48,6 +51,7 @@ export async function deleteUserAction(id: number): Promise<void> {
   if (!u) return;
   await exec("DELETE FROM users WHERE id = ?", [id]);
   await audit(me.id, "user.delete", u.username);
+  clearSlugCache();
   revalidatePath("/admin/users");
 }
 
@@ -65,6 +69,7 @@ export async function bulkLinksAdminAction(op: "disable" | "enable" | "delete", 
     await exec(`UPDATE links SET moderated = ? WHERE id IN (${ph})`, [op === "disable" ? 1 : 0, ...clean]);
   }
   await audit(me.id, `link.bulk_${op}`, `${clean.length} links`, { ids: clean });
+  clearSlugCache();
   revalidatePath("/admin/content");
 }
 
@@ -72,6 +77,7 @@ export async function moderatePageAction(id: number, moderated: boolean): Promis
   const me = await requireAdmin();
   await exec("UPDATE pages SET moderated = ? WHERE id = ?", [moderated ? 1 : 0, id]);
   await audit(me.id, moderated ? "page.disable" : "page.enable", String(id));
+  clearSlugCache();
   revalidatePath("/admin/content");
 }
 
@@ -107,6 +113,7 @@ export async function resolveReportAction(id: number, status: "resolved" | "dism
   const me = await requireAdmin();
   await exec("UPDATE reports SET status = ? WHERE id = ?", [status, id]);
   await audit(me.id, `report.${status}`, String(id));
+  clearSlugCache();
   revalidatePath("/admin/reports");
 }
 
@@ -119,6 +126,7 @@ export async function takeDownReportedAction(id: number): Promise<void> {
   else await exec("UPDATE pages p JOIN users u ON u.id = p.user_id SET p.moderated = 1 WHERE u.username = ?", [r.target_slug]);
   await exec("UPDATE reports SET status = 'resolved' WHERE id = ?", [id]);
   await audit(me.id, "report.takedown", `${r.target_type}:${r.target_slug}`);
+  clearSlugCache();
   revalidatePath("/admin/reports");
 }
 

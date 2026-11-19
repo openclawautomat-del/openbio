@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { queryOne } from "@/lib/db";
 import { getBrand } from "@/lib/brand";
+import { guardRequest } from "@/lib/host-guard";
 import { fromHeaders } from "@/lib/request";
 import { recordClick } from "@/lib/analytics";
 import { checkTargetUrl, isBlocked } from "@/lib/validation";
@@ -10,6 +11,8 @@ export const dynamic = "force-dynamic";
 
 /** Click tracker for bio-page blocks. The target always comes from the database, never from the query string. */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const blocked404 = await guardRequest(req);
+  if (blocked404) return blocked404;
   const { id } = await ctx.params;
   const blockId = Number(id);
   const b = await getBrand();

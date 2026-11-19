@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import { Bricolage_Grotesque, Hanken_Grotesk, JetBrains_Mono, Fraunces } from "next/font/google";
 import { getBrand } from "@/lib/brand";
+import { enforceHost } from "@/lib/host-guard";
 import "./globals.css";
 
 const display = Bricolage_Grotesque({ subsets: ["latin"], variable: "--f-display", display: "swap" });
@@ -22,9 +23,10 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1 };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await enforceHost(); // unknown hosts, and public content on a non-default host, are a plain 404
   const b = await getBrand();
   const theme = (await cookies()).get("theme")?.value;
   return (

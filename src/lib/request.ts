@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { effectiveHost, trustProxyEnabled } from "./host-policy.ts";
 
 export interface ReqInfo {
   ip: string;
@@ -23,7 +24,7 @@ export function fromHeaders(h: Headers): ReqInfo {
     ua: h.get("user-agent") || "",
     country: /^[A-Z]{2}$/.test(cc) && cc !== "XX" ? cc : null,
     referer: h.get("referer") || "",
-    host: (h.get("x-forwarded-host") || h.get("host") || "").toLowerCase(),
+    host: effectiveHost((n) => h.get(n), trustProxyEnabled()),
   };
 }
 
@@ -33,8 +34,8 @@ export function sameOrigin(req: Request, appUrl: string): boolean {
   if (!origin) return true; // non-browser clients (API keys) send no Origin
   try {
     const o = new URL(origin).host;
-    const hostHeader = (req.headers.get("x-forwarded-host") || req.headers.get("host") || "").toLowerCase();
-    return o === hostHeader || o === new URL(appUrl).host;
+    const hostHeader = (trustProxyEnabled() ? req.headers.get("x-forwarded-host") || "" : "").split(",")[0].trim().toLowerCase() || (req.headers.get("host") || "").toLowerCase();
+    return o.toLowerCase() === hostHeader || o.toLowerCase() === new URL(appUrl).host.toLowerCase();
   } catch {
     return false;
   }

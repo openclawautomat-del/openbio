@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { queryOne } from "@/lib/db";
 import { getBrand } from "@/lib/brand";
+import { guardRequest } from "@/lib/host-guard";
 import { fromHeaders } from "@/lib/request";
 import { recordClick } from "@/lib/analytics";
 import { phase2Enabled } from "@/lib/features";
@@ -12,6 +13,8 @@ const esc = (v: string) => v.replace(/[\r\n]+/g, " ").replace(/\\/g, "\\\\").rep
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   if (!phase2Enabled()) return new NextResponse("Not found", { status: 404 });
+  const blocked404 = await guardRequest(req);
+  if (blocked404) return blocked404;
   const { id } = await ctx.params;
   const blockId = Number(id);
   if (!Number.isInteger(blockId) || blockId < 1) return new NextResponse("Not found", { status: 404 });

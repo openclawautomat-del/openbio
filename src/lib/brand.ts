@@ -1,4 +1,5 @@
 import { getSettings } from "./settings";
+import { getDomainState } from "./domains";
 
 export interface Brand {
   name: string;
@@ -19,19 +20,11 @@ const HEX = /^#[0-9a-fA-F]{6}$/;
 /** Priority: admin DB setting > env var > default. No product name lives anywhere else in the codebase. */
 export async function getBrand(): Promise<Brand> {
   const s = await getSettings();
-  let url = (s.brand_url || process.env.APP_URL || "http://localhost:3000").trim().replace(/\/+$/, "");
-  // Forgive a missing scheme (APP_URL=example.com) instead of crashing every page.
-  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
-  try {
-    new URL(url);
-  } catch {
-    url = "http://localhost:3000";
-  }
+  // Every public URL comes from the CURRENT default domain at render time. Nothing about a domain is stored on links or pages.
+  const d = await getDomainState();
+  const url = d.defaultUrl;
+  const host = d.defaultHost;
   const primary = s.brand_primary || process.env.APP_PRIMARY_COLOR || "#0E7C66";
-  let host = "localhost";
-  try {
-    host = new URL(url).host;
-  } catch {}
   const name = s.brand_name || process.env.APP_NAME || "Open Bio";
   return {
     name,

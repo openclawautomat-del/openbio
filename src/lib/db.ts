@@ -45,3 +45,22 @@ export async function exec(sql: string, params: unknown[] = []): Promise<ResultS
   const [res] = await pool().execute<ResultSetHeader>(sql, params as never[]);
   return res;
 }
+
+/** Runs `fn` inside one transaction on a dedicated connection. Rolls back on any error. */
+export async function withTx<T>(fn: (q: { query: <R = Row>(sql: string, params?: unknown[]) => Promise<R[]>; exec: (sql: string, params?: unknown[]) => Promise<ResultSetHeader> }) => Promise<T>): Promise<T> {
+  const conn = await pool().getConnection();
+  try {
+    await conn.beginTransaction();
+    const out = await fn({
+      query: async <R = Row>(sql: string, params: unknown[] = []) => ((await conn.execute<RowDataPacket[]>(sql, params as never[]))[0] as unknown as R[]),
+      exec: async (sql: string, params: unknown[] = []) => (await conn.execute<ResultSetHeader>(sql, params as never[]))[0],
+    });
+    await conn.commit();
+    return out;
+  } catch (e) {
+    await conn.rollback().catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+}

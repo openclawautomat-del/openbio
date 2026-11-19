@@ -5,6 +5,7 @@ import { z } from "zod";
 import { exec, queryOne } from "@/lib/db";
 import { verifyPassword } from "@/lib/auth";
 import { getBrand } from "@/lib/brand";
+import { enforceHost } from "@/lib/host-guard";
 import { rateLimit } from "@/lib/ratelimit";
 import { ipHash } from "@/lib/crypto";
 import { reqInfo } from "@/lib/request";
@@ -13,11 +14,13 @@ import { emailSchema, fieldErrors, isBlocked } from "@/lib/validation";
 import { getLinkBySlug } from "@/lib/services/public";
 import { linkState } from "@/lib/services/links";
 import { sendEmail } from "@/lib/email/mailer";
+import { submitReport } from "@/lib/services/reports";
 import { phase2Enabled } from "@/lib/features";
 import type { FormState } from "@/components/client";
 
 /** Password-protected short link: verify, count the click, then redirect. */
 export async function unlockLinkAction(slug: string, _: FormState, fd: FormData): Promise<FormState> {
+  await enforceHost();
   const info = await reqInfo();
   if (!(await rateLimit(`unlock:${info.ip}:${slug}`, 8, 600))) return { errors: { password: "Too many attempts. Try again in a few minutes." } };
   const link = await getLinkBySlug(slug);
@@ -64,28 +67,9 @@ export async function contactAction(blockId: number, _: FormState, fd: FormData)
   return { ok: true, message: "Message sent." };
 }
 
-const reportSchema = z.object({
-  target: z.string().trim().min(1, "Enter the short link or page being reported.").max(255),
-  reason: z.enum(["spam", "phishing", "malware", "illegal", "other"]),
-  details: z.string().trim().max(1000).optional(),
-});
-
-/** Accepts a pasted URL or a bare name and reduces it to the slug on this server. */
-function slugFromTarget(raw: string): string {
-  let v = raw.trim();
-  try { v = new URL(v).pathname; } catch {}
-  return v.replace(/^\/+/, "").split(/[/?#]/)[0].toLowerCase().slice(0, 64);
-}
-
 export async function reportAction(_: FormState, fd: FormData): Promise<FormState> {
   const info = await reqInfo();
-  if (!(await rateLimit(`report:${info.ip}`, 5, 3600))) return { errors: { form: "Too many reports from this connection. Try again later." } };
-  const p = reportSchema.safeParse(Object.fromEntries(fd));
-  if (!p.success) return { errors: fieldErrors(p.error) };
-  const slug = slugFromTarget(p.data.target);
-  const link = await queryOne("SELECT id FROM links WHERE slug = ?", [slug]);
-  const page = link ? null : await queryOne("SELECT id FROM users WHERE username = ?", [slug]);
-  if (!link && !page) return { errors: { target: "We could not find that short link or page on this server." } };
-  await exec("INSERT INTO reports (target_type, target_slug, reason, details, reporter_ip_hash) VALUES (?, ?, ?, ?, ?)", [link ? "link" : "page", slug, p.data.reason, p.data.details || null, ipHash(info.ip)]);
+  const r = await submitReport(Object.fromEntries(fd), info.ip);
+  if (!r.ok) return { errors: r.errors };
   return { ok: true, message: "Thanks. An administrator will review it." };
 }

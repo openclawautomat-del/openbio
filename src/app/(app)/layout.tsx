@@ -26,7 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   ];
   const more: NavItem[] = [];
   if (p2) {
-    more.push({ href: "/dashboard/domains", label: "Domains", icon: "domains" }, { href: "/dashboard/contacts", label: "Messages", icon: "contacts" }, { href: "/dashboard/teams", label: "Teams", icon: "teams" }, { href: "/dashboard/goals", label: "Goals", icon: "goals" });
+    more.push({ href: "/dashboard/contacts", label: "Messages", icon: "contacts" }, { href: "/dashboard/teams", label: "Teams", icon: "teams" }, { href: "/dashboard/goals", label: "Goals", icon: "goals" });
   }
   more.push({ href: "/dashboard/api", label: t("nav.api"), icon: "api" }, { href: "/docs", label: t("nav.docs"), icon: "docs" }, { href: "/dashboard/account", label: t("nav.settings"), icon: "settings" });
   const gated = (await verificationRequired()) && !user.email_verified_at && (await emailAvailable("verification"));

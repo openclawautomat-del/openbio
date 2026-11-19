@@ -1,4 +1,3 @@
-import nodemailer from "nodemailer";
 import { query, queryOne, exec } from "../db";
 import { decrypt } from "../crypto";
 import { getBrand } from "../brand";
@@ -66,7 +65,8 @@ export async function sendEmail(type: EmailType, to: string, content: EmailConte
   return { queued: true };
 }
 
-function transport(mb: MailboxRow) {
+async function transport(mb: MailboxRow) {
+  const nodemailer = (await import("nodemailer")).default; // loaded on first send, not at startup
   return nodemailer.createTransport({
     host: mb.host,
     port: mb.port,
@@ -126,7 +126,7 @@ export async function processQueue(limit = 10): Promise<number> {
         continue;
       }
       try {
-        await transport(mb).sendMail({
+        await (await transport(mb)).sendMail({
           from: fromHeader(mb, brand.name),
           to: job.to_email,
           subject: job.subject,
@@ -170,7 +170,7 @@ export async function sendTestEmail(type: string, to: string): Promise<{ ok: boo
     paragraphs: [`This message was sent through the "${mb.type}" mailbox (${mb.host}:${mb.port}) from ${brand.name}.`],
   });
   try {
-    await transport(mb).sendMail({ from: fromHeader(mb, brand.name), to, subject: `Test email from ${brand.name}`, html, text });
+    await (await transport(mb)).sendMail({ from: fromHeader(mb, brand.name), to, subject: `Test email from ${brand.name}`, html, text });
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

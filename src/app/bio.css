@@ -100,3 +100,7 @@
 .gone-box h1 { font-family: var(--font-display); font-size: 26px; line-height: 1.2; letter-spacing: -0.02em; margin: 8px 0 8px; }
 .gone-box p { color: var(--ink); margin: 0 0 16px; }
 .gone-box .slug { color: var(--muted); }
+
+/* Interstitial for reported links */
+.warn-page .gone-box { border-left: 3px solid var(--warn, #8a5a00); }
+.dest-url { overflow-wrap: anywhere; padding: 8px 10px; background: var(--sunken, #eee); border-radius: 4px; }

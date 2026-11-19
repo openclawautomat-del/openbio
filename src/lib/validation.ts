@@ -1,21 +1,20 @@
 import { z } from "zod";
 import { checkTargetUrl, safeNext, isPrivateHost } from "./url-check";
 import { query } from "./db";
+import { ROUTE_SEGMENTS, STATIC_RESERVED, DEFAULT_RESERVED_WORDS, normalizeSlug, isReservedRoute, UNAVAILABLE } from "./slug-rules.ts";
 
-export const RESERVED_SLUGS = new Set([
-  "admin", "api", "app", "dashboard", "login", "logout", "register", "signup", "install", "docs", "forgot-password",
-  "reset-password", "verify", "settings", "static", "uploads", "u", "out", "qr", "report", "terms", "privacy", "legal",
-  "robots.txt", "sitemap.xml", "favicon.ico", "manifest.webmanifest", "_next", "health", "p", "go", "contact", "domain",
-]);
+export const RESERVED_SLUGS = new Set([...ROUTE_SEGMENTS, ...STATIC_RESERVED, ...DEFAULT_RESERVED_WORDS]);
 
-export const slugSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .min(2, "Use at least 2 characters.")
-  .max(40, "Use at most 40 characters.")
-  .regex(/^[a-z0-9][a-z0-9_-]*$/, "Use letters, numbers, hyphens and underscores only.")
-  .refine((s) => !RESERVED_SLUGS.has(s), "That name is reserved.");
+/**
+ * Synchronous shape check for forms: NFKC, lowercase ASCII, 3 to 32 chars, static reserved names.
+ * The DB-backed lists, phishing rules and uniqueness are enforced by validateNewSlug (src/lib/slug-service.ts).
+ */
+export const slugSchema = z.string().transform((v, ctx) => {
+  const n = normalizeSlug(v);
+  if (!n.ok) { ctx.addIssue({ code: "custom", message: n.error }); return z.NEVER; }
+  if (isReservedRoute(n.slug)) { ctx.addIssue({ code: "custom", message: UNAVAILABLE }); return z.NEVER; }
+  return n.slug;
+});
 
 export const emailSchema = z.string().trim().toLowerCase().email("Enter a valid email address.").max(255);
 

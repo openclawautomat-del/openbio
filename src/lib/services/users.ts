@@ -55,13 +55,15 @@ export async function sendWelcome(user: { email: string; username: string }): Pr
   });
 }
 
-export async function createUser(input: { email: string; username: string; password: string; role?: "super_admin" | "user"; verified?: boolean }): Promise<number> {
+export async function createUser(input: { email: string; username: string; password: string; role?: "super_admin" | "user"; verified?: boolean; reviewReason?: string | null }): Promise<number> {
   const hash = await hashPassword(input.password);
   const res = await exec(
     "INSERT INTO users (email, username, password_hash, role, email_verified_at) VALUES (?, ?, ?, ?, ?)",
     [input.email, input.username, hash, input.role ?? "user", input.verified ? new Date() : null],
   );
   await ensurePage(res.insertId, input.username);
+  // A suspicious username keeps the account but its public page waits for admin approval.
+  if (input.reviewReason) await exec("UPDATE pages SET review_status = 'pending', review_reason = ? WHERE user_id = ?", [input.reviewReason.slice(0, 190), res.insertId]);
   return res.insertId;
 }
 

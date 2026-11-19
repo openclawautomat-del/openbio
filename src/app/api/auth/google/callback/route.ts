@@ -6,8 +6,7 @@ import { decrypt, safeEqual } from "@/lib/crypto";
 import { createSession } from "@/lib/auth";
 import { safeNext } from "@/lib/validation";
 import { ensurePage } from "@/lib/services/pages";
-import { slugTaken } from "@/lib/services/links";
-import { RESERVED_SLUGS } from "@/lib/validation";
+import { validateNewSlug } from "@/lib/slug-service";
 import { rateLimit } from "@/lib/ratelimit";
 import { fromHeaders } from "@/lib/request";
 
@@ -19,7 +18,8 @@ async function freeUsername(email: string): Promise<string> {
   const base = (email.split("@")[0].toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 28) || "user").replace(/^[-_]+/, "") || "user";
   for (let i = 0; i < 20; i++) {
     const cand = i === 0 ? base : `${base}${Math.floor(1000 + Math.random() * 9000)}`;
-    if (cand.length >= 3 && !RESERVED_SLUGS.has(cand) && !(await slugTaken(cand)) && !(await queryOne("SELECT id FROM users WHERE username = ?", [cand]))) return cand;
+    const v = await validateNewSlug(cand, { appName: (await getBrand()).name });
+    if (v.ok && !v.review) return v.slug;
   }
   return `user${Date.now().toString(36)}`;
 }

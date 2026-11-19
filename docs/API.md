@@ -38,6 +38,12 @@ Each key gets a fixed number of requests per minute (default 60, set by the serv
 | GET | `/page` | Your bio page and blocks |
 | PATCH | `/page` | `display_name`, `bio`, `theme`, `published` |
 
+### Public endpoints (no key)
+
+`GET /api/health` returns `{"ok":true,"app":"openbio"}` on every host. `POST /api/report` takes `{"target":"slug or URL","reason":"phishing","details":"..."}`, is rate limited, and answers `202`.
+
+URLs in API responses are built from the current default domain.
+
 ### Create a link
 
 ```bash
