@@ -11,7 +11,6 @@ import { reqInfo } from "@/lib/request";
 import { flag } from "@/lib/settings";
 import { getBrand } from "@/lib/brand";
 import { validateNewSlug, slugRateOk, SLUG_RATE_MESSAGE } from "@/lib/slug-service";
-import { getBrand } from "@/lib/brand";
 import { consumeToken, createUser, issueToken, sendVerification, sendWelcome } from "@/lib/services/users";
 import { emailAvailable, sendEmail } from "@/lib/email/mailer";
 import { getT } from "@/lib/i18n";
